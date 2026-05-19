@@ -1,0 +1,7 @@
+anthropic
+yfinance
+flask
+pandas
+numpy
+python-dotenv
+requests
