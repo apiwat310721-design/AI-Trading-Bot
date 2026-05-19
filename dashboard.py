@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
+import os
+
 from flask import Flask, jsonify, render_template
 
 from price_feed import get_market_data
@@ -37,4 +39,5 @@ def api_signal():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    debug = os.getenv("FLASK_DEBUG", "0") == "1"
+    app.run(host="0.0.0.0", port=5000, debug=debug)

@@ -83,11 +83,48 @@ Respond ONLY as valid JSON with this exact schema:
 Do not include markdown, extra keys, or investment disclaimers.
 """.strip()
 
-    def _parse_response(self, text: str, market_data: dict[str, Any], model: str) -> dict[str, Any]:
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if not match:
+    @staticmethod
+    def _extract_json(text: str) -> str:
+        """Extract the first complete JSON object from Claude output.
+
+        Tries markdown code fences first, then falls back to brace-counting so a
+        greedy regex cannot accidentally capture multiple JSON-like blocks.
+        """
+        # 1. Prefer an explicit ```json ... ``` or ``` ... ``` block.
+        block = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if block:
+            return block.group(1)
+
+        # 2. Walk the string from the first '{' and count depth to find the
+        #    matching '}', correctly handling strings and escape sequences.
+        start = text.find("{")
+        if start == -1:
             raise ValueError("Claude response did not contain JSON")
-        parsed = json.loads(match.group(0))
+        depth = 0
+        in_string = False
+        escape = False
+        for i, ch in enumerate(text[start:], start):
+            if escape:
+                escape = False
+                continue
+            if ch == "\\" and in_string:
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start: i + 1]
+        raise ValueError("Claude response JSON was not properly closed")
+
+    def _parse_response(self, text: str, market_data: dict[str, Any], model: str) -> dict[str, Any]:
+        parsed = json.loads(self._extract_json(text))
         current_price = float(market_data.get("current_price") or 0)
 
         signal = str(parsed.get("signal", "WAIT")).upper()
