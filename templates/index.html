@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>XAUUSD AI Trading Agent</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="dashboard">
+    <header class="header">
+      <div>
+        <p class="eyebrow">Gold / U.S. Dollar</p>
+        <h1>XAUUSD AI Trading Agent</h1>
+      </div>
+      <div class="header-actions">
+        <span>Last updated: <strong id="lastUpdated">--</strong></span>
+        <button id="refreshButton" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <section class="grid top-grid">
+      <article class="card price-card">
+        <div class="card-label">Current Gold Price</div>
+        <div class="price-row">
+          <span id="currentPrice" class="price">$--</span>
+          <span id="trendArrow" class="trend">→</span>
+        </div>
+        <div id="priceChange" class="change neutral">24h change --%</div>
+        <p id="priceStatus" class="muted">Waiting for live yfinance data...</p>
+      </article>
+
+      <article class="card signal-card">
+        <div class="signal-head">
+          <div>
+            <div class="card-label">Claude AI Signal</div>
+            <span id="signalBadge" class="signal-badge wait">WAIT</span>
+          </div>
+          <div id="aiSpinner" class="spinner hidden"></div>
+        </div>
+        <div class="confidence-wrap">
+          <div class="confidence-meta"><span>Confidence</span><strong id="confidenceText">0%</strong></div>
+          <div class="progress"><div id="confidenceBar" class="progress-bar"></div></div>
+        </div>
+        <p id="reasoning" class="reasoning">AI analysis will refresh every 5 minutes.</p>
+        <div class="trade-levels">
+          <div><span>Entry</span><strong id="entryPrice">--</strong></div>
+          <div><span>Stop Loss</span><strong id="stopLoss">--</strong></div>
+          <div><span>Take Profit</span><strong id="takeProfit">--</strong></div>
+        </div>
+      </article>
+    </section>
+
+    <section class="grid detail-grid">
+      <article class="card indicators-card">
+        <div class="card-label">Technical Indicators</div>
+        <div class="indicators">
+          <div class="indicator">
+            <span>RSI (14)</span>
+            <strong id="rsiValue">--</strong>
+            <small id="rsiStatus">neutral</small>
+            <div class="gauge"><div id="rsiGauge" class="gauge-fill"></div></div>
+          </div>
+          <div class="indicator">
+            <span>MACD</span>
+            <strong id="macdValue">--</strong>
+            <small id="macdStatus">--</small>
+          </div>
+          <div class="indicator">
+            <span>Bollinger Position</span>
+            <strong id="bbPosition">--%</strong>
+            <small id="bbBands">Upper/Mid/Lower --</small>
+          </div>
+          <div class="indicator">
+            <span>SMA Crossover</span>
+            <strong id="smaStatus">--</strong>
+            <small id="smaValues">SMA 50 / 200 --</small>
+          </div>
+          <div class="indicator wide">
+            <span>Support / Resistance</span>
+            <strong id="levels">-- / --</strong>
+            <small>Recent swing levels from 5-minute candles</small>
+          </div>
+        </div>
+      </article>
+
+      <article class="card history-card">
+        <div class="card-label">Last 10 Signals</div>
+        <div id="history" class="history-list"><p class="muted">No signal history yet.</p></div>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    const fmtPrice = (value) => value === null || value === undefined ? '--' : `$${Number(value).toFixed(2)}`;
+    const fmtPct = (value) => value === null || value === undefined ? '--' : `${Number(value).toFixed(2)}%`;
+    const setText = (id, text) => document.getElementById(id).textContent = text;
+    const lastUpdated = document.getElementById('lastUpdated');
+    const spinner = document.getElementById('aiSpinner');
+
+    function updateTimestamp() {
+      lastUpdated.textContent = new Date().toLocaleString();
+    }
+
+    function updatePricePanel(data) {
+      if (!data.success) {
+        setText('priceStatus', data.error || 'Price feed unavailable');
+        return;
+      }
+      const change = Number(data.price_change_pct_24h || 0);
+      setText('currentPrice', fmtPrice(data.current_price));
+      setText('trendArrow', change > 0 ? '↗' : change < 0 ? '↘' : '→');
+      setText('priceChange', `24h change ${fmtPct(change)}`);
+      setText('priceStatus', `Live ${data.symbol} 5-minute data`);
+      document.getElementById('priceChange').className = `change ${change > 0 ? 'up' : change < 0 ? 'down' : 'neutral'}`;
+      document.getElementById('trendArrow').className = `trend ${change > 0 ? 'up' : change < 0 ? 'down' : 'neutral'}`;
+
+      const ind = data.indicators || {};
+      setText('rsiValue', ind.rsi_14 ?? '--');
+      setText('rsiStatus', ind.rsi_status || 'neutral');
+      document.getElementById('rsiGauge').style.width = `${Math.max(0, Math.min(100, Number(ind.rsi_14 || 0)))}%`;
+      setText('macdValue', `${ind.macd ?? '--'} / ${ind.macd_signal ?? '--'}`);
+      setText('macdStatus', ind.macd_status || '--');
+      setText('bbPosition', fmtPct(ind.bollinger_position_pct));
+      setText('bbBands', `U ${fmtPrice(ind.bollinger_upper)} | M ${fmtPrice(ind.bollinger_mid)} | L ${fmtPrice(ind.bollinger_lower)}`);
+      setText('smaStatus', ind.sma_status || '--');
+      setText('smaValues', `SMA50 ${fmtPrice(ind.sma_50)} / SMA200 ${fmtPrice(ind.sma_200)}`);
+      setText('levels', `${fmtPrice(ind.support)} / ${fmtPrice(ind.resistance)}`);
+      updateTimestamp();
+    }
+
+    function updateSignalPanel(data) {
+      const badge = document.getElementById('signalBadge');
+      const signal = data.signal || 'WAIT';
+      badge.textContent = `${signal === 'BUY' ? '🟢' : signal === 'SELL' ? '🔴' : '🟡'} ${signal}`;
+      badge.className = `signal-badge ${signal.toLowerCase()}`;
+      const confidence = Number(data.confidence || 0);
+      setText('confidenceText', `${confidence}%`);
+      document.getElementById('confidenceBar').style.width = `${confidence}%`;
+      setText('reasoning', data.reasoning || data.error || 'No analysis available.');
+      setText('entryPrice', fmtPrice(data.entry_price));
+      setText('stopLoss', fmtPrice(data.stop_loss));
+      setText('takeProfit', fmtPrice(data.take_profit));
+      renderHistory(data.history || []);
+      updateTimestamp();
+    }
+
+    function renderHistory(history) {
+      const box = document.getElementById('history');
+      if (!history.length) {
+        box.innerHTML = '<p class="muted">No signal history yet.</p>';
+        return;
+      }
+      box.innerHTML = history.map(item => `
+        <div class="history-item">
+          <span class="mini-badge ${String(item.signal || 'WAIT').toLowerCase()}">${item.signal || 'WAIT'}</span>
+          <div><strong>${item.confidence || 0}%</strong><small>${new Date(item.timestamp).toLocaleTimeString()}</small></div>
+          <span>${fmtPrice(item.entry_price)}</span>
+        </div>
+      `).join('');
+    }
+
+    async function fetchPrice() {
+      try {
+        const response = await fetch('/api/price');
+        updatePricePanel(await response.json());
+      } catch (error) {
+        setText('priceStatus', `Price request failed: ${error.message}`);
+      }
+    }
+
+    async function fetchSignal() {
+      spinner.classList.remove('hidden');
+      try {
+        const response = await fetch('/api/signal');
+        const data = await response.json();
+        updateSignalPanel(data);
+        if (data.market_data) updatePricePanel(data.market_data);
+      } catch (error) {
+        setText('reasoning', `AI signal request failed: ${error.message}`);
+      } finally {
+        spinner.classList.add('hidden');
+      }
+    }
+
+    document.getElementById('refreshButton').addEventListener('click', () => {
+      fetchPrice();
+      fetchSignal();
+    });
+
+    fetchPrice();
+    fetchSignal();
+    setInterval(fetchPrice, 30000);
+    setInterval(fetchSignal, 300000);
+  </script>
+</body>
+</html>
